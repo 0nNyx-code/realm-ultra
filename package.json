@@ -1,0 +1,19 @@
+{
+  "name": "realm-ultra",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "REALM ULTRA — single-file Three.js voxel open world + pembungkus Android",
+  "scripts": {
+    "fonts": "node tools/fonts.mjs",
+    "icons": "node tools/icon.mjs",
+    "build": "node tools/build.mjs",
+    "dist": "node tools/fonts.mjs && node tools/icon.mjs && node tools/build.mjs && node tools/package-apk.mjs",
+    "smoke": "node tools/smoke.mjs"
+  },
+  "dependencies": {
+    "esbuild": "0.24.2",
+    "pngjs": "7.0.0",
+    "three": "0.169.0"
+  }
+}

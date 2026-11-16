@@ -1,0 +1,9 @@
+node_modules/
+dist/
+apk/app/build/
+apk/build/
+apk/.gradle/
+apk/local.properties
+apk/app/src/main/assets/
+shots/
+*.log

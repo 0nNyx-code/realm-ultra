@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<!--
+================================================================================
+  REALM ULTRA: GENESIS REBORN — v4.0 "VOXEL ASCENSION"
+  --------------------------------------------------------------------------
+  CHANGELOG v4.0
+  --------------------------------------------------------------------------
+  • DIMENSI VOXEL — portal sinematik RGB-split pixelate + chiptune layer.
+    Dunia 128×128×32 blok, 3 biome (Plain/Desert/Nether), cave 3D-noise.
+  • BLOCK INTERACTION — mine (hold), place (tap), hotbar 9 slot, torch light.
+  • MOB VOXEL BARU — Creeper (fuse+explode), Zombie (horde), Skeleton (arrow),
+    Enderman (teleport), Voxel Golem (mini-boss). Semua InstancedMesh per tipe.
+  • CULLING PIPELINE — back-face default, camera-frustum + distance per-chunk,
+    LOD 3 tingkat (LOD0 <40m, LOD1 40-90m, LOD2 >90m),
+    dynamic resolution scaling otomatis, shadow map temporal reuse.
+  • KARAKTER — rig +6 bone (jari stub), blink mata, rambut voxel Points,
+    armor visual 3 slot, lock-on target, shoulder cam.
+  • ECHO 3-LAPIS — echo kecil, echo besar, echo boss (replay player terbaik).
+  • SAVE v4 — migrasi otomatis v2→v3→v4, IndexedDB untuk voxel chunk modif.
+  • UI REWORK — HUD portrait + damage ghost, hotbar 9, arc stamina,
+    combo counter besar, achievement toast slide, tab Bestiary + Codex + Voxel.
+  • AUDIO — layer chiptune voxel, 3D positional diperluas, reverb per biome.
+  • KAOMOJI — semua emoji diganti kaomoji ( ￣▽￣) (* >ω<) (*T^T) (-.-)Zzz
+    (๑•̀ㅂ•́)و (*/∀＼*). Tidak ada emoji di runtime.
+  • BACKWARD COMPAT — save v2.0 & v3.0 auto-migrate ke v4.0.
+  --------------------------------------------------------------------------
+  CHANGELOG v3.0 (baseline)
+  --------------------------------------------------------------------------
+  • Multi-touch split-zone, Echo System, Corruption Meter, Time Fracture,
+    Corruption Shader, Kill Cam, Trails, Decals, Music Layers.
+================================================================================
+-->
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0f1024">
+<title>REALM ULTRA: VOXEL ASCENSION</title>
+<!-- Font di-embed base64 lewat src/fonts.css — tidak ada request jaringan. -->
+<!--CSS-->
+</head>
+<body>
+<canvas id="game"></canvas>
+<canvas id="minimap" width="280" height="280"></canvas>
+<div class="crosshair" id="crosshair"></div>
+<div id="comboBig" aria-live="polite"></div>
+<div id="fps"></div>
+<div id="dbg"></div>
+<div id="flash"></div>
+<div id="killcam"></div>
+<div class="grain" id="grain"></div>
+<div id="vignette"></div>
+
+<div id="voxelDim">(*) VOXEL REALM (*)</div>
+
+<div id="compass"><span id="cmpQuest">(o) QUEST</span><span id="cmpPortal">(*) PORTAL</span><span id="cmpBiome">(^) BIOME</span></div>
+
+<div id="bossbar">
+  <div class="bname" id="bossName">TITAN</div>
+  <div class="bphase" id="bossPhase">PHASE I / III</div>
+  <div class="bbar"><i id="bossHp" style="width:100%"></i></div>
+  <div class="pips" id="bossPips"></div>
+</div>
+
+<div id="portraitHud"><canvas id="portraitCanvas" width="112" height="112"></canvas></div>
+
+<div class="hud shift" id="hudMain">
+  <div class="chip"><span class="chip-label">Darah</span><span class="chip-val hp" id="hp">5</span><span class="bar"><i id="hpGhost" class="ghost" style="width:100%"></i><i id="hpBar"></i></span></div>
+  <div class="chip"><span class="chip-label">Level</span><span class="chip-val lvl" id="lvl">1</span><span class="bar"><i class="vio" id="xpBar"></i></span></div>
+  <div class="chip"><span class="chip-label">Korupsi</span><span class="chip-val corrupt" id="corrupt">0%</span><span class="bar"><i class="cor" id="corruptBar" style="width:0%"></i></span></div>
+  <div class="chip"><span class="chip-label">Kristal</span><span class="chip-val gem" id="gems">0/8</span></div>
+  <div class="chip"><span class="chip-label">Ult</span><span class="chip-val combo" id="ult">0%</span><span class="bar"><i id="ultBar" style="width:0%"></i></span></div>
+  <div class="chip"><span class="chip-label">Fracture</span><span class="chip-val" id="frac" style="color:var(--teal)">READY</span></div>
+  <div class="chip"><span class="chip-label">Jam</span><span class="chip-val time" id="clock">12:00</span></div>
+</div>
+
+<div id="quest">
+  <div class="q-card" id="qCard">
+    <div class="q-t" id="qTitle">Quest - Genesis</div>
+    <div class="q-tx" id="questTx">Kumpulkan <b>8 kristal</b> di lembah.<br>Lalu masuk ke <em>portal</em>.</div>
+  </div>
+</div>
+
+<div class="inv" id="inv">
+  <div class="inv-slot active" id="slotW"><svg viewBox="0 0 24 24"><path d="M14.5 3.5h6v6L11 19l-6-6 9.5-9.5Z"/><path d="M5 13 3 21l8-2"/></svg><span class="cold" id="wLabel">S</span></div>
+  <div class="inv-slot" id="slotDash"><svg viewBox="0 0 24 24"><path d="M3 12h11"/><path d="M11 6l6 6-6 6"/></svg><span class="cold" id="dashCold"></span></div>
+  <div class="inv-slot" id="slotQ"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z"/></svg><span class="cold" id="qCold"></span></div>
+  <div class="inv-slot" id="slotR"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v8l5 3"/></svg></div>
+</div>
+
+<div id="stamArc">
+  <svg viewBox="0 0 56 56">
+    <circle cx="28" cy="28" r="22" fill="none" stroke="rgba(150,175,255,.14)" stroke-width="4"/>
+    <circle id="stamCircle" cx="28" cy="28" r="22" fill="none" stroke="#5eead4" stroke-width="4"
+      stroke-linecap="round" stroke-dasharray="138.2" stroke-dashoffset="0"/>
+  </svg>
+</div>
+
+<div class="pads" id="pads">
+  <div class="pad-cluster dpad-cluster">
+    <div class="dpad-cross">
+      <div class="pad spacer"></div>
+      <div class="pad" data-k="fwd"><svg viewBox="0 0 24 24"><path d="M4 15 12 7l8 8"/></svg></div>
+      <div class="pad spacer"></div>
+      <div class="pad" data-k="left"><svg viewBox="0 0 24 24"><path d="M15 4 7 12l8 8"/></svg></div>
+      <div class="pad" data-k="back"><svg viewBox="0 0 24 24"><path d="M4 9l8 8 8-8"/></svg></div>
+      <div class="pad" data-k="right"><svg viewBox="0 0 24 24"><path d="M9 4l8 8-8 8"/></svg></div>
+    </div>
+  </div>
+  <div class="pad-cluster action-cluster">
+    <div class="pad-grid-sm">
+      <div class="pad sm q" data-k="q">Q</div>
+      <div class="pad sm r" data-k="r">R</div>
+      <div class="pad sm tab" data-k="tab">SW</div>
+      <div class="pad sm z" data-k="z">Z</div>
+    </div>
+    <div class="pad-row-md">
+      <div class="pad md jump" data-k="jump"><svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg></div>
+      <div class="pad md dash" data-k="dash"><svg viewBox="0 0 24 24"><path d="M3 12h11"/><path d="M11 6l6 6-6 6"/></svg></div>
+      <div class="pad md mine" data-k="interact">E</div>
+    </div>
+    <div class="pad-row-lg">
+      <div class="pad lg atk" data-k="atk"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></div>
+    </div>
+  </div>
+</div>
+
+<div id="hotbar">
+  <div class="hb-slot active" data-slot="0"><span class="hb-key">1</span><span class="hb-ico">SW</span><span class="hb-ct"></span></div>
+  <div class="hb-slot" data-slot="1"><span class="hb-key">2</span><span class="hb-ico">-</span><span class="hb-ct"></span></div>
+  <div class="hb-slot" data-slot="2"><span class="hb-key">3</span><span class="hb-ico">-</span><span class="hb-ct"></span></div>
+  <div class="hb-slot" data-slot="3"><span class="hb-key">4</span><span class="hb-ico">-</span><span class="hb-ct"></span></div>
+  <div class="hb-slot" data-slot="4"><span class="hb-key">5</span><span class="hb-ico">-</span><span class="hb-ct"></span></div>
+  <div class="hb-slot" data-slot="5"><span class="hb-key">6</span><span class="hb-ico">-</span><span class="hb-ct"></span></div>
+  <div class="hb-slot" data-slot="6"><span class="hb-key">7</span><span class="hb-ico">-</span><span class="hb-ct"></span></div>
+  <div class="hb-slot" data-slot="7"><span class="hb-key">8</span><span class="hb-ico">-</span><span class="hb-ct"></span></div>
+  <div class="hb-slot" data-slot="8"><span class="hb-key">9</span><span class="hb-ico">-</span><span class="hb-ct"></span></div>
+</div>
+
+<div id="hint-bar">
+  <b>WASD</b> gerak · <b>Shift</b> lari · <b>E</b> dash/interact/mine · <b>F</b> serang (hold=charge) · <b>Spasi</b> lompat<br>
+  <b>Q</b> parry · <b>R</b> ult · <b>Z</b> rewind · <b>Tab</b> senjata · <b>1-9</b> hotbar · <b>Esc</b> pause · <b>`</b> debug
+</div>
+<div id="dmg"></div>
+<div id="storyIntro" role="dialog" aria-modal="true" aria-labelledby="storyHeading">
+  <div class="story-card">
+    <div class="story-kicker" id="storyKicker">CATATAN DARI MASA LALU</div>
+    <h2 id="storyHeading">Retakan Pertama</h2>
+    <p class="story-copy" id="storyCopy"></p>
+    <div class="story-actions">
+      <span class="story-count" id="storyCount">1 / 3</span>
+      <div style="display:flex;gap:8px"><button class="btn btn-ghost" id="storySkip">Lewati</button><button class="btn btn-primary" id="storyNext">Lanjut</button></div>
+    </div>
+  </div>
+</div>
+<div id="weather"></div>
+<div id="toasts"></div>
+<div id="radial"></div>
+<div class="bosswarn" id="bosswarn"></div>
+<div id="levelup">LEVEL UP<small>POWER INCREASED</small></div>
+<div id="voxelEnter">ENTERING VOXEL REALM<small>DIMENSION SHIFT</small></div>
+<div id="mineProg"><i id="mineBar"></i></div>
+<div id="fade"></div>
+
+<div id="portrait">
+  <div class="rot"></div>
+  <div class="title" style="font-size:1.4rem">Putar ke <b>Landscape</b></div>
+  <p class="sub" style="margin-top:.6rem">Voxel Ascension dioptimalkan untuk mode landscape.</p>
+</div>
+
+<!-- ============ START MENU ============ -->
+<div class="overlay" id="ovStart">
+  <div class="title">REALM <b>ULTRA</b> <em>: VOXEL ASCENSION</em></div>
+  <p class="sub">Lawan masa lalu. Rusak duniamu. Rewind takdirmu.<br>Echo - Corruption - Time Fracture - <em>Voxel Realm</em> — v4.0.</p>
+
+  <div class="tab-bar">
+    <div class="tab-btn on" data-tab="play">Play</div>
+    <div class="tab-btn" data-tab="voxel">Voxel</div>
+    <div class="tab-btn" data-tab="bestiary">Bestiary</div>
+    <div class="tab-btn" data-tab="settings">Settings</div>
+    <div class="tab-btn" data-tab="lore">Codex</div>
+    <div class="tab-btn" data-tab="stats">Stats</div>
+  </div>
+
+  <div class="tab-panel on" id="tabPlay" style="text-align:center">
+    <h4 style="text-align:center">Pilih Kelas</h4>
+    <div class="class-row" style="margin:6px 0 12px">
+      <div class="class-card sel" data-class="blade">
+        <h3 class="blade">Bladeborn</h3>
+        <p>Petarung seimbang. Combo 4-hit, parry window +0.1s.</p>
+        <div class="stats">HP 5 - DMG 1.15x - SPD 1.0x</div>
+      </div>
+      <div class="class-card" data-class="void">
+        <h3 class="void">Voidwalker</h3>
+        <p>Blink instan. Rapuh tapi mematikan, ult +50%.</p>
+        <div class="stats">HP 3 - DMG 1.5x - SPD 1.15x</div>
+      </div>
+      <div class="class-card" data-class="ward">
+        <h3 class="ward">Warden</h3>
+        <p>Tank. Shield pasif 2 HP absorb tiap 10s.</p>
+        <div class="stats">HP 10 - DMG 0.9x - SPD 0.88x</div>
+      </div>
+      <div class="class-card locked" id="cardVoxel">
+        <h3 class="voxel">Voxel Engineer</h3>
+        <p>Mine cepat, turret voxel. Unlock setelah clear Voxel Realm.</p>
+        <div class="stats">HP 6 - DMG 0.85x - UTIL tinggi</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap;justify-content:center">
+      <button class="btn btn-primary" id="startBtn">Masuk Genesis Realm</button>
+      <button class="btn btn-ghost" id="loadBtn">Lanjutkan Save</button>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tabVoxel">
+    <h4>Voxel Realm — Preview</h4>
+    <p>Dimensi blocky dengan fisika berbeda. Mine, place, dan hadapi mob klasik.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-top:10px">
+      <div class="beast"><div class="cube">[C]</div><div class="meta"><b>Creeper</b>Mendekat diam-diam, fuse 1.5s, ledakan AoE 4</div></div>
+      <div class="beast"><div class="cube">[Z]</div><div class="meta"><b>Zombie</b>Horde 4-6, lambat, damage 1, spawn malam</div></div>
+      <div class="beast"><div class="cube">[S]</div><div class="meta"><b>Skeleton</b>Ranged arrow, jaga jarak 8-14m</div></div>
+      <div class="beast"><div class="cube">[E]</div><div class="meta"><b>Enderman</b>Teleport 6-10m, kebal kecuali dipandang</div></div>
+      <div class="beast"><div class="cube">[G]</div><div class="meta"><b>Voxel Golem</b>Mini-boss 3x3x3, lompatan AoE, HP 40</div></div>
+    </div>
+    <h4 style="margin-top:14px">Status Unlock</h4>
+    <div class="kv"><span>Voxel Realm dibuka</span><b id="voxelUnlockStatus">Belum</b></div>
+    <div class="kv"><span>Block dimodifikasi</span><b id="voxelModCount">0</b></div>
+  </div>
+
+  <div class="tab-panel" id="tabBestiary">
+    <h4>Bestiary — Genesis</h4>
+    <div id="bestiaryGenesis"></div>
+    <h4 style="margin-top:12px">Bestiary — Voxel</h4>
+    <div id="bestiaryVoxel"></div>
+  </div>
+
+  <div class="tab-panel" id="tabSettings">
+    <h4>Kontrol</h4>
+    <div class="slider-row"><span>Sensitivitas Kamera</span><input type="range" id="sensSlider" min="0.5" max="2" step="0.05" value="1"><b id="sensVal">1.0x</b></div>
+    <h4>Fitur v4.0</h4>
+    <div class="slider-row"><span>Echo System</span><div class="toggle on" id="tgEcho"></div></div>
+    <div class="slider-row"><span>Corruption Shader</span><div class="toggle on" id="tgCorrupt"></div></div>
+    <div class="slider-row"><span>Time Fracture (Z)</span><div class="toggle on" id="tgFracture"></div></div>
+    <div class="slider-row"><span>Kill Cam</span><div class="toggle on" id="tgKillCam"></div></div>
+    <div class="slider-row"><span>Trails</span><div class="toggle on" id="tgTrails"></div></div>
+    <h4>Grafis & Performance</h4>
+    <div class="slider-row"><span>Render Distance</span><input type="range" id="rdSlider" min="40" max="120" step="4" value="78"><b id="rdVal">78</b></div>
+    <div class="slider-row"><span>Dynamic Resolution</span><div class="toggle on" id="tgDynRes"></div></div>
+    <div class="slider-row"><span>Camera Culling (arah & jarak)</span><div class="toggle on" id="tgOcc"></div></div>
+    <div class="slider-row"><span>Bloom</span><div class="toggle on" id="tgBloom"></div></div>
+    <div class="slider-row"><span>Shadows</span><div class="toggle on" id="tgShadow"></div></div>
+    <div class="slider-row"><span>Film Grain (corrupt)</span><div class="toggle on" id="tgGrain"></div></div>
+    <p class="sub" style="max-width:72ch;text-align:left;margin-top:10px;letter-spacing:.02em;text-transform:none">
+      <b>Ray-Lite:</b> cahaya lokal emissive, soft shadow-map dan refleksi planar pada perangkat yang mendukung.
+      Ini bukan ray tracing hardware; Android memakai pencahayaan emissive yang lebih hemat agar frame tetap ringan.
+    </p>
+  </div>
+
+  <div class="tab-panel" id="tabLore">
+    <h4>Tablet Kuno — 0 / 14</h4>
+    <p>Empat belas tablet tersebar di lima biome Genesis + tiga biome Voxel. Setiap tablet membuka satu bab lore.</p>
+    <h4>Tablet I — Lembah yang Terlupakan</h4>
+    <p>"Ketika bintang-bintang jatuh, cahaya mereka mengendap di lembah."</p>
+    <h4>Tablet XIII — Echo (v3.0)</h4>
+    <p>"Kau melihat mereka di cermin. Mereka adalah dirimu yang kau buang."</p>
+    <h4>Tablet XIV — Korupsi (v3.0)</h4>
+    <p>"Kekuatan mengalir ke dalam dirimu. Parry adalah obat. Waktu adalah racun."</p>
+    <h4>Tablet XV — Voxel (v4.0)</h4>
+    <p>"Ketika kau melangkah ke cermin kotak, kau melihat dunia apa adanya: blok demi blok, tanpa kebohongan."</p>
+    <h4>Tablet XVI — Ascension (v4.0)</h4>
+    <p>"Bukan pedang yang membuatmu kuat. Bukan sihir. Tapi pemahaman bahwa setiap bongkahan realitas bisa kau susun ulang."</p>
+  </div>
+
+  <div class="tab-panel" id="tabStats">
+    <div class="kv"><span>Total Waktu Main</span><b id="stTime">0m</b></div>
+    <div class="kv"><span>Total Kill</span><b id="stKill">0</b></div>
+    <div class="kv"><span>Rekor Waktu</span><b id="stBest">—</b></div>
+    <div class="kv"><span>Boss Tumbang</span><b id="stBoss">0</b></div>
+    <div class="kv"><span>Parry Sukses</span><b id="stParry">0</b></div>
+    <div class="kv"><span>Voxel Block Mined</span><b id="stMined">0</b></div>
+    <div class="kv"><span>Achievement</span><b id="stAch">0/18</b></div>
+  </div>
+</div>
+
+<!-- ============ PAUSE MENU ============ -->
+<div class="overlay hidden" id="ovPause">
+  <div class="title">PAUSE</div>
+  <div class="menu-grid">
+    <button class="btn btn-primary" id="resumeBtn">Lanjut</button>
+    <button class="btn btn-ghost" id="settingsBtn">Settings</button>
+    <button class="btn btn-ghost" id="saveBtn">Simpan</button>
+    <button class="btn btn-ghost" id="achBtn">Achievements</button>
+    <button class="btn btn-ghost" id="statsBtn">Statistics</button>
+    <button class="btn btn-ghost" id="quitBtn">Kembali ke Menu</button>
+  </div>
+  <div class="tab-panel scroll" id="pausePanel" style="display:none;margin-top:10px"></div>
+</div>
+
+<!-- ============ GAME OVER ============ -->
+<div class="overlay hidden" id="ovOver">
+  <div class="title">Selesai <b>Ascension</b></div>
+  <div class="final">
+    <span class="final-score">Waktu kamu<b id="timeOut">0</b></span>
+    <span style="display:block;font-size:.56rem;color:var(--mut);margin-top:.6rem;letter-spacing:.12em" id="dmgStats">KILL — 0 - CRIT — 0 - SCORE — 0</span>
+  </div>
+  <button class="btn btn-primary" id="againBtn">NG+ Mulai Lagi</button>
+  <button class="btn btn-ghost" id="menuBtn">Menu Utama</button>
+</div>
+
+<div class="overlay hidden" id="ovDead">
+  <div class="title fail">KAU JATUH</div>
+  <p class="sub"><em>Nyawa</em> habis... bangkit dan coba lagi. (*T^T)</p>
+  <button class="btn btn-primary" id="retryBtn">Bangkit Lagi</button>
+</div>
+
+<!--JS-->
+</body>
+</html>
