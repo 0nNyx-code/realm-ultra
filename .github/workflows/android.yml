@@ -29,12 +29,12 @@ jobs:
         if: ${{ !hashFiles('src/main.js') }}
         run: |
           set -euo pipefail
-          echo "src/main.js belum ada -> bootstrap dari $BOOTSTRAP_URL"
+          echo "src/main.js belum ada - bootstrap dari $BOOTSTRAP_URL"
           curl -fsSL --retry 3 --retry-delay 3 --max-time 300 -o /tmp/bootstrap.tar.gz "$BOOTSTRAP_URL"
           tar xzf /tmp/bootstrap.tar.gz -C .
-          test -s src/main.js          || { echo "GAGAL: src/main.js kosong"; exit 1; }
-          test -s tools/build.mjs      || { echo "GAGAL: tools/build.mjs kosong"; exit 1; }
-          test -s apk/app/build.gradle || { echo "GAGAL: apk/app/build.gradle kosong"; exit 1; }
+          test -s src/main.js          || { echo "GAGAL src/main.js kosong"; exit 1; }
+          test -s tools/build.mjs      || { echo "GAGAL tools/build.mjs kosong"; exit 1; }
+          test -s apk/app/build.gradle || { echo "GAGAL apk/app/build.gradle kosong"; exit 1; }
 
           git config user.name  "realm-ultra-bot"
           git config user.email "realm-ultra-bot@users.noreply.github.com"
@@ -51,7 +51,7 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Embed fonts (base64, offline)
-        run: node tools/fonts.mjs || echo "lewat: pakai src/fonts.css yang sudah ada"
+        run: node tools/fonts.mjs || echo "lewat, pakai src/fonts.css yang sudah ada"
 
       - name: Generate launcher icons
         run: node tools/icon.mjs
@@ -100,12 +100,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Realm Ultra — build ${{ github.run_number }}
+          name: Realm Ultra - build ${{ github.run_number }}
           body: |
-            **APK Realm Ultra** — build otomatis dari commit `${{ github.sha }}`.
+            **APK Realm Ultra** - build otomatis dari commit `${{ github.sha }}`.
 
-            - `realm-ultra.apk` -> instal di HP Android (aktifkan "Install dari sumber tidak dikenal")
-            - `realm-ultra.html.gz` -> file game single-file (100% offline), bisa dibuka di browser
+            - `realm-ultra.apk` instal di HP Android (aktifkan "Install dari sumber tidak dikenal")
+            - `realm-ultra.html.gz` file game single-file (100% offline), bisa dibuka di browser
 
             Build: run #${{ github.run_number }}
           files: |
