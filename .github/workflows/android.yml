@@ -1,0 +1,114 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # Tarball proyek (src/, tools/, apk/, package.json, README) untuk bootstrap sekali pakai.
+  # Run pertama mengekstrak ini ke repo lalu meng-commit-nya, sehingga build berikutnya
+  # murni dari git dan URL ini tidak dipakai lagi.
+  BOOTSTRAP_URL: https://files.catbox.moe/if8ipm.gz
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---------------------------------------------------------------------
+      # BOOTSTRAP (sekali saja): isi repo dari tarball lalu commit balik.
+      # ---------------------------------------------------------------------
+      - name: Bootstrap proyek
+        if: ${{ !hashFiles('src/main.js') }}
+        run: |
+          set -euo pipefail
+          echo "src/main.js belum ada -> bootstrap dari $BOOTSTRAP_URL"
+          curl -fsSL --retry 3 --retry-delay 3 --max-time 300 -o /tmp/bootstrap.tar.gz "$BOOTSTRAP_URL"
+          tar xzf /tmp/bootstrap.tar.gz -C .
+          test -s src/main.js          || { echo "GAGAL: src/main.js kosong"; exit 1; }
+          test -s tools/build.mjs      || { echo "GAGAL: tools/build.mjs kosong"; exit 1; }
+          test -s apk/app/build.gradle || { echo "GAGAL: apk/app/build.gradle kosong"; exit 1; }
+
+          git config user.name  "realm-ultra-bot"
+          git config user.email "realm-ultra-bot@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: import proyek realm-ultra (bootstrap otomatis)"
+          git push origin HEAD:main
+          echo "bootstrap selesai"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install deps
+        run: npm install --no-audit --no-fund
+
+      - name: Embed fonts (base64, offline)
+        run: node tools/fonts.mjs || echo "lewat: pakai src/fonts.css yang sudah ada"
+
+      - name: Generate launcher icons
+        run: node tools/icon.mjs
+
+      - name: Build single-file game
+        run: node tools/build.mjs
+
+      - name: Copy game into Android assets
+        run: node tools/package-apk.mjs
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Ensure SDK 34
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Gradle build (release, signed debug key)
+        working-directory: apk
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          cp apk/app/build/outputs/apk/release/app-release.apk out/realm-ultra.apk
+          gzip -9 -c dist/realm-ultra.html > out/realm-ultra.html.gz
+          ls -lh out/
+          sha256sum out/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: realm-ultra-apk
+          path: out/realm-ultra.apk
+          if-no-files-found: error
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Realm Ultra — build ${{ github.run_number }}
+          body: |
+            **APK Realm Ultra** — build otomatis dari commit `${{ github.sha }}`.
+
+            - `realm-ultra.apk` -> instal di HP Android (aktifkan "Install dari sumber tidak dikenal")
+            - `realm-ultra.html.gz` -> file game single-file (100% offline), bisa dibuka di browser
+
+            Build: run #${{ github.run_number }}
+          files: |
+            out/realm-ultra.apk
+            out/realm-ultra.html.gz
+          draft: false
