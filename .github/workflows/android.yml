@@ -9,9 +9,6 @@ permissions:
   contents: write
 
 env:
-  # Tarball proyek (src/, tools/, apk/, package.json, README) untuk bootstrap sekali pakai.
-  # Run pertama mengekstrak ini ke repo lalu meng-commit-nya, sehingga build berikutnya
-  # murni dari git dan URL ini tidak dipakai lagi.
   BOOTSTRAP_URL: https://files.catbox.moe/if8ipm.gz
 
 jobs:
@@ -22,9 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ---------------------------------------------------------------------
       # BOOTSTRAP (sekali saja): isi repo dari tarball lalu commit balik.
-      # ---------------------------------------------------------------------
       - name: Bootstrap proyek
         if: ${{ !hashFiles('src/main.js') }}
         run: |
@@ -67,12 +62,24 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Ensure SDK 34
+      # Image ubuntu-latest sudah punya Android SDK + cmdline-tools.
+      # Tidak pakai android-actions/setup-android (flaky saat dipaksa Node 24).
+      - name: Android SDK 34
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null
+          set -u
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          ls -d "$SDK" || { echo "SDK tidak ditemukan di $SDK"; exit 1; }
+          SDKM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKM" ]; then SDKM="$(command -v sdkmanager || true)"; fi
+          echo "sdkmanager=$SDKM"
+          if [ -n "${SDKM:-}" ] && [ -x "$SDKM" ]; then
+            yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+            "$SDKM" "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || echo "install dilewati (kemungkinan sudah ada)"
+          fi
+          echo "--- platforms ---"; ls "$SDK/platforms" || true
+          echo "--- build-tools ---"; ls "$SDK/build-tools" || true
 
       - uses: gradle/actions/setup-gradle@v4
         with:
