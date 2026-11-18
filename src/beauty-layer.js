@@ -101,8 +101,8 @@ const BL = (() => {
       tDiffuse: { value: null },
       uExposure: { value: 1.06 },
       uContrast: { value: 1.06 },
-      uSat: { value: 1.12 },
-      uVignette: { value: 0.30 },
+      uSat: { value: 1.20 },
+      uVignette: { value: 0.22 },
       uTime: { value: 0 }
     },
     vertexShader: /* glsl */`
@@ -460,11 +460,8 @@ const BL = (() => {
         }`
     });
 
-    // hitung tinggi permukaan pond seperti kode asli
-    let minH = Infinity;
-    for (let i = -POND_R; i <= POND_R; i += 2)
-      for (let j = -POND_R; j <= POND_R; j += 2)
-        minH = Math.min(minH, th(POND_X + i, POND_Z + j));
+    // FIX: pakai helper yang sama dengan game (bibir kolam), bukan titik terendah.
+    const pondY = pondWaterY();
 
     if (water) {
       // ganti material Water addon -> hilangkan render target refleksi
@@ -475,7 +472,7 @@ const BL = (() => {
     } else {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(POND_R * 2, POND_R * 2, 24, 24), wMat);
       m.rotation.x = -Math.PI / 2;
-      m.position.set(POND_X, minH + 0.6, POND_Z);
+      m.position.set(POND_X, pondY, POND_Z);
       m.name = 'BL_water';
       scene.add(m);
       water = m;                       // updateEnvironment() akan menaikkan uniforms.time
@@ -499,8 +496,10 @@ const BL = (() => {
   function update(dt) {
     if (!D.enabled) return;
     const t = performance.now() * 0.001;
-    const dayness = (Math.sin(state.day * Math.PI * 2) + 1) / 2;
-    const elev = Math.sin(state.day * Math.PI * 2);          // -1..1 ketinggian matahari
+    // FIX: phase matahari. dulu sin(day*2π) → puncak jam 06:00, jam 15:00 gelap.
+    // Sekarang 00:00 = tengah malam, 06:00 = sunrise, 12:00 = siang, 18:00 = sunset.
+    const elev = -Math.cos(state.day * Math.PI * 2);
+    const dayness = (elev + 1) / 2;
     const dayW = sstep(-0.06, 0.32, elev);
     const nightW = 1 - sstep(-0.32, 0.02, elev);
     const duskW = clamp(1 - dayW - nightW, 0, 1);
@@ -511,41 +510,65 @@ const BL = (() => {
 
     // --- sky dome ---
     D.sky.position.set(camera.position.x, camera.position.y, camera.position.z);
-    skyUniforms.uDayness.value = dayW + duskW * 0.55;
-    skyUniforms.uStorm.value = stormy ? 1 : 0;
+    skyUniforms.uStorm.value = (stormy && !isVoxel) ? 1 : 0;
 
-    // zenith
-    _cNight.setHex(0x050a1c); _cDusk.setHex(0x40457e); _cDay.setHex(0x3a7ec4);
-    _cTmp.copy(_cNight).lerp(_cDusk, clamp(duskW + dayW, 0, 1)).lerp(_cDay, dayW);
-    skyUniforms.uZenith.value.copy(_cTmp);
-    // horizon
-    _cNight.setHex(0x0e1a2e); _cDusk.setHex(0xffa869); _cDay.setHex(0xcfe9ff);
-    _cTmp2.copy(_cNight).lerp(_cDusk, clamp(duskW + dayW, 0, 1)).lerp(_cDay, dayW);
-    skyUniforms.uHorizon.value.copy(_cTmp2);
-    // kabut tanah di bawah horizon
-    _cTmp.copy(_cTmp2).multiplyScalar(0.66);
-    skyUniforms.uGround.value.copy(_cTmp);
-    // warna matahari
-    _cNight.setHex(0x8fa6ff); _cDusk.setHex(0xffb27a); _cDay.setHex(0xfff4de);
-    skyUniforms.uSunCol.value.copy(_cNight).lerp(_cDusk, clamp(duskW + dayW, 0, 1)).lerp(_cDay, dayW);
-    skyUniforms.uSunDir.value.set(0.55, 0.35 + dayW * 0.55, 0.35).normalize();
-    scene.background = null;
+    if (isVoxel) {
+      // FIX: Voxel = "siang abadi" dengan palet sendiri.
+      // DULU: mengikuti siklus Genesis → jam 15:00 sun 0.08 / ambient 0.16
+      //       dan update() ini menimpa boost 1.3 dari enterVoxelDimension() → hitam legam.
+      skyUniforms.uDayness.value = 1;
+      skyUniforms.uZenith.value.setHex(0x3f9be0);
+      skyUniforms.uHorizon.value.setHex(0xbdefff);
+      skyUniforms.uGround.value.setHex(0x8bd6c4);
+      skyUniforms.uSunCol.value.setHex(0xfff4d6);
+      skyUniforms.uSunDir.value.set(0.55, 0.78, 0.35).normalize();
+      sun.intensity = 1.62;
+      sun.color.copy(skyUniforms.uSunCol.value);
+      ambient.intensity = 0.96;
+      ambient.color.setHex(0xd2ebff);
+      ambient.groundColor.setHex(0x8cbb7a);
+      moon.intensity = 0.05;
+      scene.fog.color.setHex(0xb6e6ec);
+      scene.fog.density = LOW ? 0.0032 : 0.0026;
+      if (D.gradePass) {
+        D.gradePass.uniforms.uExposure.value = 1.04;
+        D.gradePass.uniforms.uTime.value = t * 60;
+      }
+    } else {
+      skyUniforms.uDayness.value = dayW + duskW * 0.55;
 
-    // --- LIGHTING (diambil alih dari updateEnvironment) ---
-    sun.intensity = 0.08 + dayW * 2.35 + duskW * 1.15 + (stormy ? -0.6 : 0);
-    sun.color.copy(skyUniforms.uSunCol.value);
-    ambient.intensity = 0.16 + dayW * 0.40 + duskW * 0.24;
-    ambient.color.setHex(stormy ? 0x9fb2c8 : 0x9cc4f0);
-    ambient.groundColor.setHex(stormy ? 0x3a4038 : 0x4a5a3a);
-    moon.intensity = (1 - dayW) * 0.22;
-    if (night) sun.color.setHex(0xff7a7a);
-    // kabut mengikuti warna horizon supaya menyatu
-    scene.fog.color.copy(_cTmp2);
-    scene.fog.density = (LOW ? 0.0060 : 0.0052) + (1 - dayW) * 0.0042 + (stormy ? 0.010 : 0) + (state.weather === 'fog' ? 0.012 : 0);
-    if (D.gradePass) {
-      D.gradePass.uniforms.uExposure.value = 1.02 + dayW * 0.06;
-      D.gradePass.uniforms.uTime.value = t * 60;
+      // zenith
+      _cNight.setHex(0x0a1530); _cDusk.setHex(0x5a6bb0); _cDay.setHex(0x2f7fd0);
+      _cTmp.copy(_cNight).lerp(_cDusk, clamp(duskW + dayW, 0, 1)).lerp(_cDay, dayW);
+      skyUniforms.uZenith.value.copy(_cTmp);
+      // horizon
+      _cNight.setHex(0x16243c); _cDusk.setHex(0xffad78); _cDay.setHex(0xc7e8ff);
+      _cTmp2.copy(_cNight).lerp(_cDusk, clamp(duskW + dayW, 0, 1)).lerp(_cDay, dayW);
+      skyUniforms.uHorizon.value.copy(_cTmp2);
+      // kabut tanah di bawah horizon
+      _cTmp.copy(_cTmp2).multiplyScalar(0.72);
+      skyUniforms.uGround.value.copy(_cTmp);
+      // warna matahari
+      _cNight.setHex(0x9db6ff); _cDusk.setHex(0xffc08c); _cDay.setHex(0xfff6e2);
+      skyUniforms.uSunCol.value.copy(_cNight).lerp(_cDusk, clamp(duskW + dayW, 0, 1)).lerp(_cDay, dayW);
+      skyUniforms.uSunDir.value.set(0.55, 0.35 + dayW * 0.55, 0.35).normalize();
+
+      // LIGHTING — di-tune supaya siang tidak "putih terbakar", malam masih terbaca.
+      sun.intensity = 0.12 + dayW * 1.15 + duskW * 0.56 - (stormy ? 0.25 : 0);
+      sun.color.copy(skyUniforms.uSunCol.value);
+      ambient.intensity = 0.30 + dayW * 0.30 + duskW * 0.14;
+      ambient.color.setHex(stormy ? 0x9fb2c8 : (dayW > 0.5 ? 0xdcecff : 0x9cc4f0));
+      ambient.groundColor.setHex(stormy ? 0x3a4038 : 0x5a6b4a);
+      moon.intensity = (1 - dayW) * 0.28;
+      if (night) sun.color.setHex(0xff7a7a);
+      scene.fog.color.copy(_cTmp2);
+      scene.fog.density = (LOW ? 0.0048 : 0.0042) + (1 - dayW) * 0.0030 + (stormy ? 0.008 : 0) + (state.weather === 'fog' ? 0.010 : 0);
+      if (D.gradePass) {
+        D.gradePass.uniforms.uExposure.value = 0.96 + dayW * 0.04;
+        D.gradePass.uniforms.uTime.value = t * 60;
+      }
     }
+    scene.background = null;
     // --- awan ---
     for (let i = 0; i < D.clouds.length; i++) {
       const c = D.clouds[i];
@@ -553,10 +576,16 @@ const BL = (() => {
       c.rotation.z += dt * (i === 0 ? 0.004 : -0.006);
       c.material.map.offset.x += dt * (i === 0 ? 0.0035 : 0.0060);
       c.material.map.offset.y += dt * 0.0008;
-      const w = 0.55 + dayness * 0.45;
-      c.material.color.setRGB(w * (duskW > 0.2 ? 1.0 : 0.98), w * (duskW > 0.2 ? 0.86 : 0.97), w * (duskW > 0.2 ? 0.78 : 0.99));
-      c.material.opacity = (i === 0 ? 0.80 : 0.50) * (0.35 + dayness * 0.65) * (stormy ? 1.25 : 1);
-      c.visible = !isVoxel;
+      if (isVoxel) {
+        // Voxel: satu lapis awan tipis biar langit tidak kosong (murah: 1 draw).
+        c.material.color.setRGB(1, 1, 1);
+        c.material.opacity = i === 0 ? 0.30 : 0;
+      } else {
+        const w = 0.55 + dayness * 0.45;
+        c.material.color.setRGB(w * (duskW > 0.2 ? 1.0 : 0.98), w * (duskW > 0.2 ? 0.86 : 0.97), w * (duskW > 0.2 ? 0.78 : 0.99));
+        c.material.opacity = (i === 0 ? 0.80 : 0.50) * (0.35 + dayness * 0.65) * (stormy ? 1.25 : 1);
+      }
+      c.visible = isVoxel ? (i === 0) : true;
     }
 
     // --- fireflies (malam) ---

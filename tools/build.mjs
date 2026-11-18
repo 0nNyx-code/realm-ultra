@@ -11,12 +11,13 @@ const esbuild = load('esbuild');
 
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 
-const [tpl, css, fontsCss, main, beauty, perf, bridge] = await Promise.all([
+const [tpl, css, fontsCss, main, beauty, anime, perf, bridge] = await Promise.all([
   readFile(join(ROOT, 'src', 'index.html'), 'utf8'),
   readFile(join(ROOT, 'src', 'style.css'), 'utf8'),
   readFile(join(ROOT, 'src', 'fonts.css'), 'utf8').catch(() => ''),
   readFile(join(ROOT, 'src', 'main.js'), 'utf8'),
   readFile(join(ROOT, 'src', 'beauty-layer.js'), 'utf8'),
+  readFile(join(ROOT, 'src', 'anime-layer.js'), 'utf8'),
   readFile(join(ROOT, 'src', 'perf-layer.js'), 'utf8'),
   readFile(join(ROOT, 'src', 'debug-bridge.js'), 'utf8')
 ]);
@@ -28,6 +29,7 @@ const cut = main.lastIndexOf(CLOSER);
 if (cut < 0) throw new Error('penutup IIFE "})();" tidak ditemukan');
 const entry = main.slice(0, cut)
   + '\n\n/* === BEAUTY LAYER === */\n' + beauty
+  + '\n\n/* === ANIME LAYER === */\n' + anime
   + '\n\n/* === PERF LAYER === */\n' + perf
   + '\n\n/* === DEBUG BRIDGE === */\n' + bridge
   + '\n' + main.slice(cut);

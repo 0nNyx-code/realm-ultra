@@ -13,6 +13,23 @@ import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
 import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 
+// ============================================================================
+//  SHARED TOON RAMP — 5 band, bayangan biru dingin (ala Genshin).
+//  Dipakai ulang terrain / prop / blok voxel. NearestFilter WAJIB supaya tidak blur.
+//  MeshToonMaterial juga LEBIH MURAH dari MeshStandardMaterial di Mali-G52.
+// ============================================================================
+const TOON_RAMP = (() => {
+  const cv = document.createElement('canvas'); cv.width = 5; cv.height = 1;
+  const g = cv.getContext('2d');
+  const bands = ['rgb(108,120,148)', 'rgb(150,164,192)', 'rgb(196,208,228)', 'rgb(232,239,250)', 'rgb(255,255,255)'];
+  for (let i = 0; i < bands.length; i++){ g.fillStyle = bands[i]; g.fillRect(i, 0, 1, 1); }
+  const t = new THREE.CanvasTexture(cv);
+  t.minFilter = THREE.NearestFilter;
+  t.magFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  return t;
+})();
+
 /* ============================================================================
    REALM ULTRA — ULTRA CHARACTER  v1.0  "VOXEL KNIGHT"
    ----------------------------------------------------------------------------
@@ -1315,7 +1332,29 @@ function th(x, z){
   y += Math.sin(x*0.05)*Math.cos(z*0.05)*0.6;
   const d0 = Math.hypot(x,z);
   y *= clamp(d0/9, 0, 1);
+  // FIX kolam: dulu tanah tidak digali sama sekali, jadi air (yang cuma 0.6
+  // di atas titik PALING RENDAH) tertutup tanah di semua sisi. Sekarang
+  // dibentuk cekungan dangkal dengan bibir mulus.
+  const pd = Math.hypot(x - POND_X, z - POND_Z);
+  if (pd < POND_R + 2){
+    const t = clamp((POND_R + 2 - pd) / 4, 0, 1);
+    const s = t * t * (3 - 2 * t);              // smoothstep
+    const basin = -2.20 + 0.32 * (pd / POND_R); // dasar kolam cukup dalam supaya air terlihat
+    y = y * (1 - s) + basin * s;
+  }
   return y;
+}
+
+// Permukaan air = sedikit di bawah bibir kolam, bukan di atas titik terendah.
+function pondWaterY(){
+  let rim = Infinity;
+  for (let a = 0; a < 24; a++){
+    const ang = (a / 24) * Math.PI * 2;
+    // sampel di LUAR cekungan (s = 0) → tinggi tanah asli di bibir kolam
+    rim = Math.min(rim, th(POND_X + Math.cos(ang) * (POND_R + 2.6),
+                           POND_Z + Math.sin(ang) * (POND_R + 2.6)));
+  }
+  return rim - 0.15;
 }
 
 // ============================================================================
@@ -1368,8 +1407,8 @@ groundGeo.rotateX(-Math.PI/2);
   groundGeo.setAttribute('color', new THREE.BufferAttribute(gcol, 3));
   groundGeo.computeVertexNormals();
 }
-const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({
-  vertexColors: true, roughness: 0.95, side: THREE.FrontSide
+const ground = new THREE.Mesh(groundGeo, new THREE.MeshToonMaterial({
+  vertexColors: true, gradientMap: TOON_RAMP, side: THREE.FrontSide
 }));
 ground.receiveShadow = Q.shadows;
 ground.name = 'groundGenesis';
@@ -1381,10 +1420,6 @@ scene.add(ground);
 let water = null;
 if (Q.water){
   try {
-    let minH = Infinity;
-    for (let i = -POND_R; i <= POND_R; i += 2)
-      for (let j = -POND_R; j <= POND_R; j += 2)
-        minH = Math.min(minH, th(POND_X+i, POND_Z+j));
     const low = 32, hi = 128;
     const lc = document.createElement('canvas'); lc.width = lc.height = low;
     const lx = lc.getContext('2d');
@@ -1405,7 +1440,7 @@ if (Q.water){
       sunColor: 0xd8dfff, waterColor: C.water, distortionScale: 2.4, alpha: 0.9, fog: true
     });
     water.rotation.x = -Math.PI/2;
-    water.position.set(POND_X, minH+0.6, POND_Z);
+    water.position.set(POND_X, pondWaterY(), POND_Z);
     scene.add(water);
   } catch(e){ water = null; }
 }
@@ -1464,15 +1499,15 @@ const flowerGeo = new THREE.ConeGeometry(0.07, 0.2, 5); flowerGeo.translate(0, 0
 const bladeGeo = new THREE.PlaneGeometry(0.16, 0.65); bladeGeo.translate(0, 0.325, 0);
 const pillarGeo = new THREE.CylinderGeometry(0.9, 1.1, 8, 10); pillarGeo.translate(0, 4, 0);
 
-const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3a2a44, roughness: 0.95, side: THREE.FrontSide });
-const leafMat  = new THREE.MeshStandardMaterial({ color: 0x1f6b5c, roughness: 0.85, side: THREE.FrontSide });
-const rockMat  = new THREE.MeshStandardMaterial({ color: 0x6f7290, roughness: 0.97, flatShading: true, side: THREE.FrontSide });
-const flowerMat= new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7, side: THREE.FrontSide });
-const pillarMat= new THREE.MeshStandardMaterial({ color: 0x6a6f8a, roughness: 0.9, flatShading: true, side: THREE.FrontSide });
+const trunkMat = new THREE.MeshToonMaterial({ color: 0x5b3e63, gradientMap: TOON_RAMP, side: THREE.FrontSide });
+const leafMat  = new THREE.MeshToonMaterial({ color: 0x3fae86, gradientMap: TOON_RAMP, side: THREE.FrontSide });
+const rockMat  = new THREE.MeshToonMaterial({ color: 0x8e97b8, gradientMap: TOON_RAMP, side: THREE.FrontSide });
+const flowerMat= new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: TOON_RAMP, side: THREE.FrontSide });
+const pillarMat= new THREE.MeshToonMaterial({ color: 0x8792b4, gradientMap: TOON_RAMP, side: THREE.FrontSide });
 
 const windUniform = { value: 0 };
 const playerPosU = { value: new THREE.Vector3() };
-const grassMat = new THREE.MeshStandardMaterial({ color: 0x3f9c78, roughness: 0.9, side: THREE.DoubleSide, emissive: 0x143f2e, emissiveIntensity: 0.45 });
+const grassMat = new THREE.MeshToonMaterial({ color: 0x54bd8f, gradientMap: TOON_RAMP, side: THREE.DoubleSide, emissive: 0x143f2e, emissiveIntensity: 0.28 });
 grassMat.onBeforeCompile = (shader) => {
   shader.uniforms.uTime = windUniform;
   shader.uniforms.uPlayerPos = playerPosU;
@@ -1715,7 +1750,7 @@ function updateWowFX(nowMs, dt){
   }
   dustGeo.attributes.position.needsUpdate = true;
   dustMat.color.setHex(state.world.dimension === 'voxel' ? 0x8fff9e : 0x9fe8d8);
-  const dayness = (Math.sin(state.day * Math.PI * 2) + 1) / 2;
+  const dayness = (-Math.cos(state.day * Math.PI * 2) + 1) / 2;
   _sunDir.copy(sunOffset).normalize();
   sunSpr.position.set(px + _sunDir.x*220, _sunDir.y*220, pz + _sunDir.z*220);
   sunSpr.material.opacity = clamp(dayness*1.4-0.15, 0, 1);
@@ -1984,9 +2019,10 @@ const MonsterFactory = (function () {
     const cv = document.createElement('canvas');
     cv.width = 4; cv.height = 1;
     const g = cv.getContext('2d');
-    g.fillStyle = 'rgb(48,48,58)';   g.fillRect(0,0,1,1);
-    g.fillStyle = 'rgb(112,112,128)';g.fillRect(1,0,1,1);
-    g.fillStyle = 'rgb(186,186,200)';g.fillRect(2,0,1,1);
+    // FIX monster gelap: bayangan toon tidak boleh sampai hitam pekat.
+    g.fillStyle = 'rgb(104,112,132)';g.fillRect(0,0,1,1);
+    g.fillStyle = 'rgb(150,158,176)';g.fillRect(1,0,1,1);
+    g.fillStyle = 'rgb(206,210,224)';g.fillRect(2,0,1,1);
     g.fillStyle = 'rgb(255,255,255)';g.fillRect(3,0,1,1);
     const t = new THREE.CanvasTexture(cv);
     t.minFilter = THREE.NearestFilter;
@@ -2914,14 +2950,14 @@ const voxelState = {
 const VOXEL_BIOMES = ['plain', 'desert', 'nether'];
 const VOXEL_BLOCK_TYPES = {
   0: { name:'air',   color:0x000000, transparent: true,  mine: 0    },
-  1: { name:'grass', color:0x6bbf4a, mine: 0.6, solid: true },
-  2: { name:'dirt',  color:0x8a5a3a, mine: 0.5, solid: true },
-  3: { name:'stone', color:0x8a8a92, mine: 0.9, solid: true },
-  4: { name:'sand',  color:0xe8d8a0, mine: 0.5, solid: true },
-  5: { name:'water', color:0x3a8ad4, transparent: true, mine: 99, solid: false, liquid: true },
-  6: { name:'lava',  color:0xff6a1a, emissive: true, mine: 99, solid: false, liquid: true },
-  7: { name:'netherrack', color:0x8a2a2a, mine: 0.7, solid: true },
-  8: { name:'obsidian', color:0x2a1a3a, emissive: true, mine: 2.5, solid: true },
+  1: { name:'grass', color:0x7ed45a, mine: 0.6, solid: true },
+  2: { name:'dirt',  color:0xa8784f, mine: 0.5, solid: true },
+  3: { name:'stone', color:0x9aa8bd, mine: 0.9, solid: true },
+  4: { name:'sand',  color:0xf2dfa8, mine: 0.5, solid: true },
+  5: { name:'water', color:0x54b8ea, transparent: true, mine: 99, solid: false, liquid: true },
+  6: { name:'lava',  color:0xff7b32, emissive: true, mine: 99, solid: false, liquid: true },
+  7: { name:'netherrack', color:0xb0444a, mine: 0.7, solid: true },
+  8: { name:'obsidian', color:0x3b3262, emissive: true, mine: 2.5, solid: true },
   9: { name:'glowstone', color:0xffd966, emissive: true, mine: 0.6, solid: true }
 };
 
@@ -3023,11 +3059,10 @@ const voxelMatCache = {};
 function getVoxelMat(blockId){
   if (voxelMatCache[blockId]) return voxelMatCache[blockId];
   const b = VOXEL_BLOCK_TYPES[blockId];
-  const mat = new THREE.MeshStandardMaterial({
-    color: b.color,
+  const mat = new THREE.MeshToonMaterial({
+    color: b.color, gradientMap: TOON_RAMP,
     emissive: b.emissive ? b.color : 0x000000,
-    emissiveIntensity: b.emissive ? 1.1 : 0,
-    roughness: 0.92, flatShading: true,
+    emissiveIntensity: b.emissive ? 0.9 : 0,
     side: THREE.FrontSide,
     transparent: !!b.transparent,
     opacity: b.transparent ? 0.75 : 1,
@@ -3347,9 +3382,10 @@ const AnimeCharacter = (function () {
       const cv = document.createElement('canvas');
       cv.width = 4; cv.height = 1;
       const ctx = cv.getContext('2d');
-      ctx.fillStyle = 'rgb(70,70,70)';   ctx.fillRect(0,0,1,1);
-      ctx.fillStyle = 'rgb(140,140,140)';ctx.fillRect(1,0,1,1);
-      ctx.fillStyle = 'rgb(210,210,210)';ctx.fillRect(2,0,1,1);
+      // FIX: ramp bayangan jangan sampai hitam pekat (dulu 70 → baju jadi kotak hitam).
+      ctx.fillStyle = 'rgb(122,132,152)';ctx.fillRect(0,0,1,1);
+      ctx.fillStyle = 'rgb(168,178,198)';ctx.fillRect(1,0,1,1);
+      ctx.fillStyle = 'rgb(222,228,240)';ctx.fillRect(2,0,1,1);
       ctx.fillStyle = 'rgb(255,255,255)';ctx.fillRect(3,0,1,1);
       const tex = new THREE.CanvasTexture(cv);
       tex.minFilter = THREE.NearestFilter;
@@ -4087,7 +4123,9 @@ const AnimeCharacter = (function () {
       browL.rotation.z = -0.15 + browTilt;
       browR.rotation.z =  0.15 - browTilt;
       eyeL.scale.y = eyeY; eyeR.scale.y = eyeY;
-      mouth.scale.set(mouthScale, 1, 1);
+      // FIX: jangan timpa skala asli mulut (0.045 x 0.008 x 0.008).
+      // Dulu `set(mouthScale, 1, 1)` bikin kubus hitam 1x1x1 di depan wajah.
+      mouth.scale.set(0.045 * mouthScale, 0.008, 0.008);
       blushL.material.opacity += (blushOp - blushL.material.opacity) * Math.min(1, dt*6);
       blushR.material.opacity = blushL.material.opacity;
     }
@@ -4224,7 +4262,7 @@ function wrapAnimeHero(hero){
   return hero;
 }
 const characterAnim = wrapAnimeHero(AnimeCharacter.create(THREE, {
-  hairColor: 0x3f6cd8, outfitColor: 0x1a2540, accentColor: C.teal, skinTone: 0xffd9c0,
+  hairColor: 0x5f86e8, outfitColor: 0x4164ad, accentColor: C.teal, skinTone: 0xffd9c0,
   quality: LOW ? 'low' : 'high', shadows: Q.shadows && v4.shadowOn
 }));
 playerGroup.add(characterAnim.root);
@@ -6116,7 +6154,7 @@ function updateCompanion(dt){
 const _tmpSky = new THREE.Color();
 function updateEnvironment(dt){
   state.day = (state.day + dt * 0.003334) % 1;
-  const dayness = (Math.sin(state.day * Math.PI * 2) + 1) / 2;
+  const dayness = (-Math.cos(state.day * Math.PI * 2) + 1) / 2;
   const stormy = (state.weather === 'storm' || state.weather === 'overcast');
   const foggy  = state.weather === 'fog';
   const night  = state.weather === 'bloodmoon';
@@ -6130,10 +6168,20 @@ function updateEnvironment(dt){
   if (night) _tmpSky.lerp(new THREE.Color(0x6b0a20), 0.5);
   if (aurora) _tmpSky.lerp(new THREE.Color(0x1a3a5a), 0.35);
   skyColor.copy(_tmpSky);
-  scene.fog.color.copy(skyColor);
-  scene.fog.density = (stormy ? 0.024 : (LOW ? 0.009 : 0.011)) + (1 - dayness) * 0.006 + (foggy ? 0.016 : 0);
-  sun.intensity = (stormy ? 0.4 : 0.85) + dayness * 1.45;
-  ambient.intensity = 0.65 + dayness * 0.6;
+  if (isVoxel){
+    // Voxel = siang abadi. Beauty layer memakai palet yang sama (jangan dikunci siklus hari).
+    scene.fog.color.setHex(0xb6e6ec);
+    scene.fog.density = LOW ? 0.0032 : 0.0026;
+    sun.intensity = 1.62;
+    ambient.intensity = 0.96;
+    ambient.color.setHex(0xd2ebff);
+    ambient.groundColor.setHex(0x8cbb7a);
+  } else {
+    scene.fog.color.copy(skyColor);
+    scene.fog.density = (stormy ? 0.018 : (LOW ? 0.0048 : 0.0042)) + (1 - dayness) * 0.0030 + (foggy ? 0.010 : 0);
+    sun.intensity = (stormy ? 0.25 : 0.12) + dayness * 1.15;
+    ambient.intensity = 0.30 + dayness * 0.30;
+  }
   starMat.opacity = clamp(1 - dayness * 3.2, 0, 1) * 0.85;
   if (bloom.enabled) bloom.strength = Q.bloomStrength * (0.55 + dayness * 0.55);
   sun.position.copy(playerGroup.position).add(sunOffset);
@@ -6369,14 +6417,16 @@ function updateGameplay(dt){
     // dimension filter
     if (m.dimension === 'genesis' && isVoxel) { m.mesh.visible = false; continue; }
     if (m.dimension === 'voxel' && !isVoxel) { m.mesh.visible = false; continue; }
-    m.mesh.visible = true;
     const sm = m.mesh;
+    const dx = sm.position.x - p.x, dz = sm.position.z - p.z;
+    const dP = Math.hypot(dx, dz) || 0.001;
+    // Batasi NPC aktif: yang jauh tidak di-update AI-nya dan tidak digambar.
+    const ACTIVE_R = LOW ? 42 : 58;
+    if (dP > ACTIVE_R){ sm.visible = false; continue; }
+    sm.visible = true;
     if (m.isEcho){ updateEcho(m, dt); continue; }
     if (m.dimension === 'voxel') updateVoxelMobAI(m, dt, p, nowMs);
     else updateGenesisMobAI(m, dt, p, nowMs);
-    const dx = sm.position.x - p.x, dz = sm.position.z - p.z;
-    const dP = Math.hypot(dx, dz) || 0.001;
-    if (dP > 58) sm.visible = false;   // v4.5 perf: far monsters stop drawing
     if (dP < m.sense * 1.4) nearbyHostile++;
   }
 
@@ -6731,9 +6781,12 @@ function enterVoxelDimension(){
     voxelPortal.position.set(sx + 4, voxGroundHeight(sx + 4, sz) + 0.1, sz);
     // hide genesis chunks
     chunkStore.forEach(c => { c.group.visible = false; });
-    // Set fireflies-like ambient (warm)
-    ambient.color.setHex(0xffe0a0);
-    ambient.intensity = 1.3;
+    // FIX: palet voxel disamakan dengan updateEnvironment + BeautyLayer (no flash, no blackout).
+    ambient.color.setHex(0xd2ebff);
+    ambient.groundColor.setHex(0x8cbb7a);
+    ambient.intensity = 0.96;
+    // FIX "tiba-tiba mati": kasih waktu bernapas sebelum mob voxel mulai menyerang.
+    state.invuln = Math.max(state.invuln || 0, 3.0);
     // camera reset
     yaw = 0; pitch = -0.22;
     // hud
@@ -6805,7 +6858,7 @@ function spawnVoxelMobs(){
   const count = 12;
   for (let i = 0; i < count; i++){
     const a = Math.random() * Math.PI * 2;
-    const r = 12 + Math.random() * 20;
+    const r = 18 + Math.random() * 16;
     const x = clamp(sx + Math.cos(a) * r, 4, voxelState.worldW - 4);
     const z = clamp(sz + Math.sin(a) * r, 4, voxelState.worldW - 4);
     const y = voxGroundHeight(x, z);
